@@ -3,11 +3,9 @@
   "bundle": {
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "exceptionDomain": "",
       "signingIdentity": "Developer ID Application: Lisheng Zi",
       "providerShortName": null,
-      "entitlements": null,
-      "infoPlist": "Info.plist"
+      "entitlements": null
     }
   }
 }

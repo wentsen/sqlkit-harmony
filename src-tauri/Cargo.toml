@@ -22,7 +22,12 @@ crate-type = [
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [ "devtools" ] }
+# This branch builds for both desktop and the open-harmony target, so tauri
+# is pinned to the richerfu open-harmony fork versions and resolved through
+# [patch.crates-io] below. The desktop mainline (master) keeps crates.io.
+tauri = { version = "=2.8.5", features = [ "devtools" ] }
+wry = { version = "=0.55.1", default-features = false }
+tao = { version = "=0.35.3", default-features = false }
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = [ "derive" ] }
@@ -86,7 +91,7 @@ http = "1"
 log = "0.4"
 futures = "0.3"
 rand = "0.8"
-data-studio-agent = { git = "https://github.com/geek-fun/data-studio-agent.git", tag = "v0.2.0" }
+data-studio-agent = { git = "https://github.com/geek-fun/data-studio-agent.git", tag = "v0.2.1" }
 
 flate2 = "1.0"
 tar = "0.4"
@@ -130,3 +135,14 @@ sqlcipher = [ "rusqlite/bundled-sqlcipher" ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.7"
+
+# OpenHarmony runtime: richerfu forks of the tauri open-harmony work, the exact
+# combination verified on MateBook Pro (woshipm 2026-10-18 guide). Kept as a
+# permanent [patch] on this branch — the desktop mainline (master) does not
+# carry it. The official tauri-apps branches currently break on
+# openharmony-ability: its main branch (1.0.0-beta.5, 2026-11-02) dropped the
+# "webview" feature the wry branch depends on.
+[patch.crates-io]
+tauri = { git = "https://github.com/richerfu/tauri", rev = "c818cc1d" }
+wry = { git = "https://github.com/richerfu/wry", rev = "ae8b21b5" }
+tao = { git = "https://github.com/richerfu/tao", rev = "9d51be24" }
