@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-plugins",
+  "description": "Plugins without an OHOS counterpart: dialog (ArkUI filePicker), updater (AppGallery), deep-link (Want routing, Phase 2), window-state (system window management)",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "macOS",
+    "windows"
+  ],
+  "permissions": [
+    "dialog:default",
+    "dialog:allow-save",
+    "updater:default",
+    "deep-link:default",
+    "window-state:default"
+  ]
+}

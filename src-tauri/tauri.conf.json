@@ -47,20 +47,14 @@
       "rpm": {
         "desktopTemplate": "linux/SqlKit.desktop"
       }
-    },
-    "macOS": {
-      "minimumSystemVersion": "10.15",
-      "exceptionDomain": "",
-      "signingIdentity": "Developer ID Application: Lisheng Zi",
-      "providerShortName": null,
-      "entitlements": null,
-      "infoPlist": "Info.plist"
     }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["sqlkit"]
+        "schemes": [
+          "sqlkit"
+        ]
       }
     },
     "updater": {
