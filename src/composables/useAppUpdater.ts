@@ -5,6 +5,7 @@ import { useLocalStorage } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from './useNotifications'
+import { usePlatform } from './usePlatform'
 
 // Module-scope state ensures `useAppUpdater()` behaves as a shared composable:
 // every call site reads from and writes to the same refs (App.vue triggers the
@@ -35,8 +36,13 @@ const updateError = ref('')
 
 export function useAppUpdater() {
   const { t } = useI18n()
+  const { isOhos } = usePlatform()
 
   const checkForUpdates = async (showToast = false, options: { includeSkipped?: boolean } = {}): Promise<Update | null> => {
+    // Updates are delivered by AppGallery on HarmonyOS; the updater plugin is
+    // not registered in ohos builds, so never reach for it there.
+    if (isOhos.value)
+      return null
     if (isChecking.value) {
       includeSkippedInCheck ||= !!options.includeSkipped
       return null
@@ -89,7 +95,7 @@ export function useAppUpdater() {
   }
 
   const downloadAndInstall = async () => {
-    if (!updateInfo.value)
+    if (!updateInfo.value || isOhos.value)
       return
 
     updateError.value = ''

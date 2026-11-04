@@ -130,7 +130,9 @@ pub fn run() {
 
     let store = commands::store::Store::new();
 
-    tauri::Builder::default()
+    // Updater is disabled on HarmonyOS: distribution and updates go through AppGallery.
+    #[cfg(not(feature = "ohos"))]
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
@@ -138,7 +140,18 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build());
+    #[cfg(feature = "ohos")]
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .manage(AppState::new())
         .manage(store.clone())
         .setup(move |app| {

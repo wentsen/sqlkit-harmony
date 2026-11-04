@@ -118,6 +118,8 @@ wiremock = "0.6"
 
 [features]
 default = [ "rusqlite/bundled" ]
+# HarmonyOS build: disables the updater plugin and short-circuits every JDBC
+# bridge spawn (no JVM on OHOS). Verify with: cargo check --features ohos
 ohos = []
 # Use SQLCipher (encrypted SQLite) instead of plain SQLite.
 # Build with: cargo build --no-default-features --features sqlcipher

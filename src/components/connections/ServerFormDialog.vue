@@ -223,7 +223,7 @@ const editPrompt = () => promptDialogRef.value?.show(promptValue.value)
 const savePrompt = (value: string) => {
   formData.value.prompt = value.trim() || undefined
 }
-const { platform } = usePlatform()
+const { platform, isOhos } = usePlatform()
 
 watch(() => props.open, (open) => {
   if (open) {
@@ -458,6 +458,8 @@ const preferredTypeRank = (value: DatabaseType, index: number) =>
 
 const databaseTypeOptions = computed(() =>
   Object.values(DatabaseType)
+    // HarmonyOS has no JVM: JDBC-bridge engines are not connectable there.
+    .filter(value => !(isOhos.value && isJdbcDatabase(value)))
     .map((value, index) => ({ value, index }))
     .sort((a, b) => preferredTypeRank(a.value, a.index) - preferredTypeRank(b.value, b.index))
     .map(({ value }) => {

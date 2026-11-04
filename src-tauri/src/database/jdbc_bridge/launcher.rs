@@ -7,6 +7,9 @@ use crate::database::error::{DbError, DbResult};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+// On ohos the launcher never spawns a JVM (gated in start/start_with_drivers),
+// so the process plumbing below is compiled but intentionally unused there.
+#[cfg_attr(feature = "ohos", allow(unused_imports))]
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -14,6 +17,7 @@ use std::thread;
 use super::protocol::{JdbcRequest, JdbcResponse};
 
 /// Manages the Java bridge subprocess.
+#[cfg_attr(feature = "ohos", allow(dead_code))]
 pub struct JdbcBridgeLauncher {
     process: Option<Child>,
     stdin: Option<ChildStdin>,
@@ -47,6 +51,7 @@ impl JdbcBridgeLauncher {
     /// older JVMs reject it at startup, so it is only passed when the detected
     /// Java is new enough (or when the version can't be determined — every
     /// supported launch path already requires Java 25+).
+    #[cfg_attr(feature = "ohos", allow(dead_code))]
     fn native_access_args(java_version: Option<u32>) -> Vec<String> {
         match java_version {
             Some(version) if version < 17 => Vec::new(),
@@ -69,6 +74,7 @@ impl JdbcBridgeLauncher {
         self.drain_stderr()
     }
 
+    #[cfg_attr(feature = "ohos", allow(dead_code))]
     fn spawn_stderr_reader(stderr: std::process::ChildStderr) -> Arc<Mutex<Vec<String>>> {
         let buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let buf_clone = buf.clone();
@@ -92,125 +98,148 @@ impl JdbcBridgeLauncher {
     }
 
     pub fn start(&mut self, jvm_args: &[String]) -> DbResult<()> {
-        let java = Self::detect_java().ok_or_else(|| {
-            DbError::Connection(
-                "Java not found. Install a JRE or call download_jre() to use the bundled JRE."
-                    .to_string(),
-            )
-        })?;
-
-        let java_version = super::jre::system_java_version(&java);
-        let mut cmd = Command::new(&java);
-        for arg in Self::native_access_args(java_version) {
-            cmd.arg(arg);
+        #[cfg(feature = "ohos")]
+        {
+            // HarmonyOS has no JVM: any JDBC-bridge connection must fail fast here.
+            let _ = jvm_args;
+            return Err(DbError::Connection(
+                "JDBC bridge is unavailable on HarmonyOS (no JVM)".to_string(),
+            ));
         }
-        for arg in jvm_args {
-            cmd.arg(arg);
-        }
-        cmd.arg("-jar").arg(self.jar_path.to_str().unwrap_or(""));
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| DbError::Connection(format!("Failed to start JDBC bridge: {}", e)))?;
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| DbError::Connection("Failed to capture bridge stdin".to_string()))?;
+        #[cfg(not(feature = "ohos"))]
+        {
+            let java = Self::detect_java().ok_or_else(|| {
+                DbError::Connection(
+                    "Java not found. Install a JRE or call download_jre() to use the bundled JRE."
+                        .to_string(),
+                )
+            })?;
 
-        let stderr = child.stderr.take().expect("stderr was piped");
-        self.stderr_buffer = Some(Self::spawn_stderr_reader(stderr));
-        self.process = Some(child);
-        self.stdin = Some(stdin);
+            let java_version = super::jre::system_java_version(&java);
+            let mut cmd = Command::new(&java);
+            for arg in Self::native_access_args(java_version) {
+                cmd.arg(arg);
+            }
+            for arg in jvm_args {
+                cmd.arg(arg);
+            }
+            cmd.arg("-jar").arg(self.jar_path.to_str().unwrap_or(""));
+            let mut child = cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| DbError::Connection(format!("Failed to start JDBC bridge: {}", e)))?;
 
-        // Wait briefly and check if the process is still alive
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        if let Some(ref mut child) = self.process {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    return Err(DbError::Connection(format!(
-                        "JDBC bridge exited immediately with code: {}. stderr: {}",
-                        status,
-                        self.drain_stderr()
-                    )));
-                }
-                Ok(None) => { /* still running, good */ }
-                Err(e) => {
-                    return Err(DbError::Connection(format!(
-                        "Error checking bridge process: {}",
-                        e
-                    )));
+            let stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| DbError::Connection("Failed to capture bridge stdin".to_string()))?;
+
+            let stderr = child.stderr.take().expect("stderr was piped");
+            self.stderr_buffer = Some(Self::spawn_stderr_reader(stderr));
+            self.process = Some(child);
+            self.stdin = Some(stdin);
+
+            // Wait briefly and check if the process is still alive
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Some(ref mut child) = self.process {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Err(DbError::Connection(format!(
+                            "JDBC bridge exited immediately with code: {}. stderr: {}",
+                            status,
+                            self.drain_stderr()
+                        )));
+                    }
+                    Ok(None) => { /* still running, good */ }
+                    Err(e) => {
+                        return Err(DbError::Connection(format!(
+                            "Error checking bridge process: {}",
+                            e
+                        )));
+                    }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
+        }
     }
 
     /// Start the Java bridge process with additional driver JARs on the classpath.
     pub fn start_with_drivers(&mut self, driver_jars: Vec<PathBuf>) -> DbResult<()> {
-        let java = Self::detect_java().ok_or_else(|| {
-            DbError::Connection(
-                "Java not found. Install a JRE or call download_managed_jre() to use the bundled JRE."
-                    .to_string(),
-            )
-        })?;
-
-        // Build classpath: bridge JAR + driver JARs
-        let mut classpath = self.jar_path.to_string_lossy().to_string();
-        for jar in &driver_jars {
-            if jar.exists() {
-                classpath.push_str(&format!(":{}", jar.display()));
-            }
+        #[cfg(feature = "ohos")]
+        {
+            let _ = driver_jars;
+            return Err(DbError::Connection(
+                "JDBC bridge is unavailable on HarmonyOS (no JVM)".to_string(),
+            ));
         }
 
-        let java_version = super::jre::system_java_version(&java);
-        let mut cmd = Command::new(&java);
-        for arg in Self::native_access_args(java_version) {
-            cmd.arg(arg);
-        }
-        cmd.args(["-cp", &classpath, "sqlkit.bridge.BridgeMain"]);
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| DbError::Connection(format!("Failed to start JDBC bridge: {}", e)))?;
+        #[cfg(not(feature = "ohos"))]
+        {
+            let java = Self::detect_java().ok_or_else(|| {
+                DbError::Connection(
+                    "Java not found. Install a JRE or call download_managed_jre() to use the bundled JRE."
+                        .to_string(),
+                )
+            })?;
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| DbError::Connection("Failed to capture bridge stdin".to_string()))?;
-
-        let stderr = child.stderr.take().expect("stderr was piped");
-        self.stderr_buffer = Some(Self::spawn_stderr_reader(stderr));
-        self.process = Some(child);
-        self.stdin = Some(stdin);
-
-        // Wait briefly and check if the process is still alive
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        if let Some(ref mut child) = self.process {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    return Err(DbError::Connection(format!(
-                        "JDBC bridge exited immediately with code: {}. stderr: {}",
-                        status,
-                        self.drain_stderr()
-                    )));
-                }
-                Ok(None) => { /* still running, good */ }
-                Err(e) => {
-                    return Err(DbError::Connection(format!(
-                        "Error checking bridge process: {}",
-                        e
-                    )));
+            // Build classpath: bridge JAR + driver JARs
+            let mut classpath = self.jar_path.to_string_lossy().to_string();
+            for jar in &driver_jars {
+                if jar.exists() {
+                    classpath.push_str(&format!(":{}", jar.display()));
                 }
             }
-        }
 
-        Ok(())
+            let java_version = super::jre::system_java_version(&java);
+            let mut cmd = Command::new(&java);
+            for arg in Self::native_access_args(java_version) {
+                cmd.arg(arg);
+            }
+            cmd.args(["-cp", &classpath, "sqlkit.bridge.BridgeMain"]);
+            let mut child = cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| DbError::Connection(format!("Failed to start JDBC bridge: {}", e)))?;
+
+            let stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| DbError::Connection("Failed to capture bridge stdin".to_string()))?;
+
+            let stderr = child.stderr.take().expect("stderr was piped");
+            self.stderr_buffer = Some(Self::spawn_stderr_reader(stderr));
+            self.process = Some(child);
+            self.stdin = Some(stdin);
+
+            // Wait briefly and check if the process is still alive
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Some(ref mut child) = self.process {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Err(DbError::Connection(format!(
+                            "JDBC bridge exited immediately with code: {}. stderr: {}",
+                            status,
+                            self.drain_stderr()
+                        )));
+                    }
+                    Ok(None) => { /* still running, good */ }
+                    Err(e) => {
+                        return Err(DbError::Connection(format!(
+                            "Error checking bridge process: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+
+            Ok(())
+        }
     }
 
     /// Send a request and receive a response.
