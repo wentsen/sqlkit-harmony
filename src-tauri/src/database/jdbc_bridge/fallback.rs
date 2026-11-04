@@ -489,7 +489,6 @@ pub async fn run_fallback_chain(
     }
 }
 
-
 fn db_type_from_config(config: &DatabaseDriverConfig) -> DatabaseType {
     match config.name.as_str() {
         "Oracle Database" => DatabaseType::Oracle,
