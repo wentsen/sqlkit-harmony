@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -13,13 +15,8 @@
     "core:window:allow-is-maximized",
     "core:window:allow-is-fullscreen",
     "core:window:allow-start-dragging",
-    "window-state:default",
     "opener:default",
     "process:default",
-    "store:default",
-    "dialog:default",
-    "dialog:allow-save",
-    "updater:default",
-    "deep-link:default"
+    "store:default"
   ]
 }

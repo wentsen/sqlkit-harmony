@@ -505,7 +505,7 @@ impl PostgresAdapter {
                 now: UnixTime,
             ) -> Result<ServerCertVerified, rustls::Error> {
                 let cert = ParsedCertificate::try_from(end_entity)?;
-                let provider = rustls::crypto::aws_lc_rs::default_provider();
+                let provider = rustls::crypto::ring::default_provider();
                 rustls::client::verify_server_cert_signed_by_trust_anchor(
                     &cert,
                     &self.root_store,
@@ -523,7 +523,7 @@ impl PostgresAdapter {
                 dss: &DigitallySignedStruct,
             ) -> Result<HandshakeSignatureValid, rustls::Error> {
                 let spki = ParsedCertificate::try_from(cert)?.subject_public_key_info();
-                let provider = rustls::crypto::aws_lc_rs::default_provider();
+                let provider = rustls::crypto::ring::default_provider();
                 let supported = &provider.signature_verification_algorithms;
 
                 let possible_algs = supported
@@ -559,7 +559,7 @@ impl PostgresAdapter {
                 dss: &DigitallySignedStruct,
             ) -> Result<HandshakeSignatureValid, rustls::Error> {
                 let spki = ParsedCertificate::try_from(cert)?.subject_public_key_info();
-                let provider = rustls::crypto::aws_lc_rs::default_provider();
+                let provider = rustls::crypto::ring::default_provider();
                 let supported = &provider.signature_verification_algorithms;
 
                 let possible_algs = supported
@@ -635,11 +635,10 @@ impl PostgresAdapter {
                 None
             };
 
-        let builder = ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::aws_lc_rs::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .map_err(|e| DbError::Configuration(format!("Failed to configure TLS: {}", e)))?;
+        let builder =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .map_err(|e| DbError::Configuration(format!("Failed to configure TLS: {}", e)))?;
 
         if skip_verification {
             let config = if let Some((certs, key)) = client_auth {

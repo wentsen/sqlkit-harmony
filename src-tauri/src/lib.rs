@@ -14,6 +14,7 @@ pub mod connection;
 pub mod commands;
 
 // Menu setup
+#[cfg(not(target_env = "ohos"))]
 pub mod menu;
 
 // Agent / AI modules
@@ -130,15 +131,30 @@ pub fn run() {
 
     let store = commands::store::Store::new();
 
-    tauri::Builder::default()
+    // Desktop-only plugins (updater / deep-link / dialog / window-state): the
+    // open-harmony branch does not expose the tauri::Env or window APIs they
+    // use, and each gets a HarmonyOS-specific replacement (AppGallery, Want
+    // routing, ArkUI picker, system window management).
+    #[cfg(not(feature = "ohos"))]
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_os::init());
+    #[cfg(feature = "ohos")]
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init());
+    #[cfg(not(target_env = "ohos"))]
+    let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .manage(AppState::new())
         .manage(store.clone())
         .setup(move |app| {
@@ -158,6 +174,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 store.set_app_handle(handle.clone()).await;
             });
+            #[cfg(not(target_env = "ohos"))]
             menu::create_menu(app)?;
 
             // Initialize the capability registry
@@ -241,24 +258,31 @@ pub fn run() {
 
             // Cold start: the URL arrived via argv before any frontend
             // listener could exist — park it for the pull above.
-            let pending = app.state::<PendingAuthState>();
-            use tauri_plugin_deep_link::DeepLinkExt;
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
-                for url in &urls {
-                    if let Some(payload) = parse_auth_from_url(url.as_str()) {
-                        pending.store(payload);
+            // OHOS gets Want-based routing in Phase 2.
+            #[cfg(not(target_env = "ohos"))]
+            {
+                let pending = app.state::<PendingAuthState>();
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for url in &urls {
+                        if let Some(payload) = parse_auth_from_url(url.as_str()) {
+                            pending.store(payload);
+                        }
                     }
                 }
             }
 
             // On non-macOS, remove native window decorations BEFORE showing
             // the window so there is no flash of the native title bar
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(all(not(target_os = "macos"), not(target_env = "ohos")))]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(false);
+                // OHOS windows are shown by the system in fullscreen form.
+                let _ = window.show();
             }
 
             // Show the window after full initialization
+            #[cfg(not(target_env = "ohos"))]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
             }

@@ -1,0 +1,13 @@
+# HarmonyOS support lives on the official tauri-apps feat/open-harmony branches
+# (not merged to mainline as of 2026-11; see sqlkit-harmony porting report §2.3).
+# Copy this section into src-tauri/Cargo.toml to enable the OHOS build.
+# Keep the desktop build on crates.io: do NOT commit this patch section.
+#
+# Branch heads verified 2026-11-05: tauri e3bf6eb1, wry 6aaf4b84 (both synced
+# with dev on 2026-07-30, shipping tao 0.36 / wry 0.56). A real-device port
+# (2026-10) also used tauri 2.8.5 / wry 0.55.1 / tao 0.35.3 via richerfu's forks.
+
+[patch.crates-io]
+tauri = { git = "https://github.com/tauri-apps/tauri", branch = "feat/open-harmony" }
+wry = { git = "https://github.com/tauri-apps/wry", branch = "feat/open-harmony" }
+tao = { git = "https://github.com/tauri-apps/tao", branch = "feat/open-harmony" }

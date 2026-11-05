@@ -1,4 +1,6 @@
+#[cfg(not(feature = "ohos"))]
 use crate::database::config::DatabaseType;
+#[cfg(not(feature = "ohos"))]
 use crate::database::jdbc_bridge::{
     download, jre,
     launcher::JdbcBridgeLauncher,
@@ -7,7 +9,13 @@ use crate::database::jdbc_bridge::{
     tns_parser,
 };
 use serde::Serialize;
+#[cfg(not(feature = "ohos"))]
 use std::path::PathBuf;
+
+#[cfg(feature = "ohos")]
+fn jdbc_unavailable() -> String {
+    "JDBC bridge is unavailable on HarmonyOS (no JVM)".to_string()
+}
 
 #[derive(Serialize)]
 pub struct JreStatus {
@@ -30,147 +38,190 @@ pub struct DriverInfo {
 
 #[tauri::command]
 pub async fn check_jre_status() -> Result<JreStatus, String> {
-    let managed_path = jre::managed_jre_java_path();
-    if managed_path.exists() {
-        Ok(JreStatus {
-            installed: true,
-            version: jre::read_jre_version().or_else(|| Some("25".to_string())),
-            path: Some(managed_path.to_string_lossy().to_string()),
-            source: "managed".to_string(),
-        })
-    } else if let Some(system_java) = jre::JreDetector::detect_system_java() {
-        let version = jre::system_java_version(&system_java).map(|v| format!("{}.x", v));
-        Ok(JreStatus {
-            installed: true,
-            version,
-            path: Some(system_java.to_string_lossy().to_string()),
-            source: "system".to_string(),
-        })
-    } else {
-        Ok(JreStatus {
-            installed: false,
-            version: None,
-            path: None,
-            source: "none".to_string(),
-        })
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let managed_path = jre::managed_jre_java_path();
+        if managed_path.exists() {
+            Ok(JreStatus {
+                installed: true,
+                version: jre::read_jre_version().or_else(|| Some("25".to_string())),
+                path: Some(managed_path.to_string_lossy().to_string()),
+                source: "managed".to_string(),
+            })
+        } else if let Some(system_java) = jre::JreDetector::detect_system_java() {
+            let version = jre::system_java_version(&system_java).map(|v| format!("{}.x", v));
+            Ok(JreStatus {
+                installed: true,
+                version,
+                path: Some(system_java.to_string_lossy().to_string()),
+                source: "system".to_string(),
+            })
+        } else {
+            Ok(JreStatus {
+                installed: false,
+                version: None,
+                path: None,
+                source: "none".to_string(),
+            })
+        }
     }
 }
 
 #[tauri::command]
 pub async fn download_jre() -> Result<(), String> {
-    let result = jre::download_managed_jre().await;
-    match result {
-        Ok(()) => {
-            crate::download::emit_complete("jre", crate::download::DownloadKind::Jre);
-            Ok(())
-        }
-        Err(e) => {
-            let err = e.to_string();
-            crate::download::emit_error("jre", crate::download::DownloadKind::Jre, &err);
-            Err(err)
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let result = jre::download_managed_jre().await;
+        match result {
+            Ok(()) => {
+                crate::download::emit_complete("jre", crate::download::DownloadKind::Jre);
+                Ok(())
+            }
+            Err(e) => {
+                let err = e.to_string();
+                crate::download::emit_error("jre", crate::download::DownloadKind::Jre, &err);
+                Err(err)
+            }
         }
     }
 }
 
 #[tauri::command]
 pub async fn remove_jre() -> Result<(), String> {
-    jre::remove_managed_jre().map_err(|e| e.to_string())
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        jre::remove_managed_jre().map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
 pub async fn list_drivers() -> Result<Vec<DriverInfo>, String> {
-    let registry = DriverRegistry::load();
-    let mut result = Vec::new();
-    for (key, config) in &registry.databases {
-        let cached = driver_cache_info(&config.maven_artifact);
-        result.push(DriverInfo {
-            db_type: key.clone(),
-            name: config.name.clone(),
-            installed: cached.is_some(),
-            version_cap: config.version_cap.clone(),
-            filename: cached.as_ref().map(|c| c.0.clone()),
-            file_size: cached.as_ref().map(|c| c.1),
-            resolved_version: cached.as_ref().and_then(|c| {
-                parse_jar_version(
-                    &config.maven_artifact,
-                    config.maven_classifier.as_deref(),
-                    &c.0,
-                )
-            }),
-        });
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let registry = DriverRegistry::load();
+        let mut result = Vec::new();
+        for (key, config) in &registry.databases {
+            let cached = driver_cache_info(&config.maven_artifact);
+            result.push(DriverInfo {
+                db_type: key.clone(),
+                name: config.name.clone(),
+                installed: cached.is_some(),
+                version_cap: config.version_cap.clone(),
+                filename: cached.as_ref().map(|c| c.0.clone()),
+                file_size: cached.as_ref().map(|c| c.1),
+                resolved_version: cached.as_ref().and_then(|c| {
+                    parse_jar_version(
+                        &config.maven_artifact,
+                        config.maven_classifier.as_deref(),
+                        &c.0,
+                    )
+                }),
+            });
+        }
+        Ok(result)
     }
-    Ok(result)
 }
 
 #[tauri::command]
 pub async fn download_driver(db_type: String) -> Result<(), String> {
-    let dt = parse_db_type(&db_type).map_err(|e| e.to_string())?;
-    let registry = DriverRegistry::load();
-    let config = registry
-        .get_config(dt)
-        .ok_or_else(|| format!("No registry entry for {}", db_type))?;
-
-    crate::download::emit_progress(&db_type, crate::download::DownloadKind::Driver, 0, 1);
-
-    // Start a temporary Java bridge process to resolve the driver
-    let bridge_jar = download::bridge_jar_path();
-    let mut launcher = JdbcBridgeLauncher::new(bridge_jar);
-    if let Err(e) = launcher.start(&[]) {
-        let err = e.to_string();
-        crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
-        return Err(err);
+    #[cfg(feature = "ohos")]
+    {
+        let _ = db_type;
+        return Err(jdbc_unavailable());
     }
 
-    let req = JdbcRequest::new(
-        JdbcMethod::ResolveDriver,
-        serde_json::json!({
-            "maven_group": config.maven_group,
-            "maven_artifact": config.maven_artifact,
-            "version_cap": config.version_cap,
-            "maven_classifier": config.maven_classifier,
-        }),
-    );
-    let resp = launcher
-        .send_request_with_progress(&req, |downloaded, total| {
-            crate::download::emit_progress(
-                &db_type,
-                crate::download::DownloadKind::Driver,
-                downloaded,
-                total,
-            );
-        })
-        .map_err(|e| {
+    #[cfg(not(feature = "ohos"))]
+    {
+        let dt = parse_db_type(&db_type).map_err(|e| e.to_string())?;
+        let registry = DriverRegistry::load();
+        let config = registry
+            .get_config(dt)
+            .ok_or_else(|| format!("No registry entry for {}", db_type))?;
+
+        crate::download::emit_progress(&db_type, crate::download::DownloadKind::Driver, 0, 1);
+
+        // Start a temporary Java bridge process to resolve the driver
+        let bridge_jar = download::bridge_jar_path();
+        let mut launcher = JdbcBridgeLauncher::new(bridge_jar);
+        if let Err(e) = launcher.start(&[]) {
             let err = e.to_string();
             crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
-            err
-        })?;
-    if let Some(err) = resp.error {
-        launcher.shutdown();
-        crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
-        return Err(err);
-    }
+            return Err(err);
+        }
 
-    // Driver is now cached on disk by the Java bridge
-    launcher.shutdown();
-    crate::download::emit_complete(&db_type, crate::download::DownloadKind::Driver);
-    Ok(())
+        let req = JdbcRequest::new(
+            JdbcMethod::ResolveDriver,
+            serde_json::json!({
+                "maven_group": config.maven_group,
+                "maven_artifact": config.maven_artifact,
+                "version_cap": config.version_cap,
+                "maven_classifier": config.maven_classifier,
+            }),
+        );
+        let resp = launcher
+            .send_request_with_progress(&req, |downloaded, total| {
+                crate::download::emit_progress(
+                    &db_type,
+                    crate::download::DownloadKind::Driver,
+                    downloaded,
+                    total,
+                );
+            })
+            .map_err(|e| {
+                let err = e.to_string();
+                crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
+                err
+            })?;
+        if let Some(err) = resp.error {
+            launcher.shutdown();
+            crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
+            return Err(err);
+        }
+
+        // Driver is now cached on disk by the Java bridge
+        launcher.shutdown();
+        crate::download::emit_complete(&db_type, crate::download::DownloadKind::Driver);
+        Ok(())
+    }
 }
 
 #[tauri::command]
 pub async fn remove_driver(db_type: String) -> Result<(), String> {
-    let dt = parse_db_type(&db_type).map_err(|e| e.to_string())?;
-    let registry = DriverRegistry::load();
-    let config = registry
-        .get_config(dt)
-        .ok_or_else(|| format!("No registry entry for {}", db_type))?;
-    let artifact_dir = drivers_cache_dir().join(&config.maven_artifact);
-    if artifact_dir.exists() {
-        std::fs::remove_dir_all(&artifact_dir)
-            .map_err(|e| format!("Failed to remove driver: {}", e))?;
+    #[cfg(feature = "ohos")]
+    {
+        let _ = db_type;
+        return Err(jdbc_unavailable());
     }
-    Ok(())
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let dt = parse_db_type(&db_type).map_err(|e| e.to_string())?;
+        let registry = DriverRegistry::load();
+        let config = registry
+            .get_config(dt)
+            .ok_or_else(|| format!("No registry entry for {}", db_type))?;
+        let artifact_dir = drivers_cache_dir().join(&config.maven_artifact);
+        if artifact_dir.exists() {
+            std::fs::remove_dir_all(&artifact_dir)
+                .map_err(|e| format!("Failed to remove driver: {}", e))?;
+        }
+        Ok(())
+    }
 }
 
+#[cfg(not(feature = "ohos"))]
 fn parse_db_type(s: &str) -> Result<DatabaseType, String> {
     match s.to_lowercase().as_str() {
         "oracle" => Ok(DatabaseType::Oracle),
@@ -205,6 +256,7 @@ fn parse_db_type(s: &str) -> Result<DatabaseType, String> {
 
 /// Get info about a cached driver: filename and file size.
 /// Returns `None` if no JAR is cached for the given artifact.
+#[cfg(not(feature = "ohos"))]
 fn driver_cache_info(artifact: &str) -> Option<(String, u64)> {
     let dir = drivers_cache_dir().join(artifact);
     if !dir.exists() {
@@ -224,6 +276,7 @@ fn driver_cache_info(artifact: &str) -> Option<(String, u64)> {
 
 /// Parse a version from a JAR filename.
 /// Handles Maven classifiers: e.g. "hive-jdbc-3.1.3-standalone.jar" -> "3.1.3"
+#[cfg(not(feature = "ohos"))]
 fn parse_jar_version(artifact: &str, classifier: Option<&str>, filename: &str) -> Option<String> {
     let stem = filename.strip_suffix(".jar")?;
     let after_artifact = stem.strip_prefix(&format!("{}-", artifact))?;
@@ -239,6 +292,7 @@ fn parse_jar_version(artifact: &str, classifier: Option<&str>, filename: &str) -
 }
 
 /// Get the path to the JDBC driver cache directory (`~/.sqlkit/jdbc-bridge/drivers/`).
+#[cfg(not(feature = "ohos"))]
 fn drivers_cache_dir() -> PathBuf {
     jre::home_dir()
         .join(".sqlkit")
@@ -256,71 +310,107 @@ pub struct BridgeStatus {
 /// List TNS alias names from an Oracle tnsnames.ora file in the given directory.
 #[tauri::command]
 pub async fn list_tns_aliases(tns_admin_dir: String) -> Result<Vec<String>, String> {
-    Ok(tns_parser::parse_tns_aliases(&tns_admin_dir))
+    #[cfg(feature = "ohos")]
+    {
+        let _ = tns_admin_dir;
+        return Err(jdbc_unavailable());
+    }
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        Ok(tns_parser::parse_tns_aliases(&tns_admin_dir))
+    }
 }
 
 /// Download a JDBC driver JAR directly from Maven Central via HTTP.
 /// Does NOT require Java — purely HTTP download, parallel-safe.
 #[tauri::command]
 pub async fn download_jdbc_driver_direct(db_type: String) -> Result<(), String> {
-    let result = download::download_jdbc_driver_direct(&db_type).await;
-    match result {
-        Ok(()) => {
-            crate::download::emit_complete(&db_type, crate::download::DownloadKind::Driver);
-            Ok(())
-        }
-        Err(e) => {
-            let err = e.to_string();
-            crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
-            Err(err)
+    #[cfg(feature = "ohos")]
+    {
+        let _ = db_type;
+        return Err(jdbc_unavailable());
+    }
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let result = download::download_jdbc_driver_direct(&db_type).await;
+        match result {
+            Ok(()) => {
+                crate::download::emit_complete(&db_type, crate::download::DownloadKind::Driver);
+                Ok(())
+            }
+            Err(e) => {
+                let err = e.to_string();
+                crate::download::emit_error(&db_type, crate::download::DownloadKind::Driver, &err);
+                Err(err)
+            }
         }
     }
 }
 
 #[tauri::command]
 pub async fn check_bridge_status() -> Result<BridgeStatus, String> {
-    let jar_path = download::bridge_jar_path();
-    let current_version = if jar_path.exists() {
-        jar_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .and_then(|s| s.strip_prefix("jdbc-bridge-"))
-            .unwrap_or(env!("APP_VERSION"))
-            .to_string()
-    } else {
-        env!("APP_VERSION").to_string()
-    };
-    Ok(BridgeStatus {
-        installed: jar_path.exists(),
-        current_version,
-        path: Some(jar_path.to_string_lossy().to_string()),
-    })
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let jar_path = download::bridge_jar_path();
+        let current_version = if jar_path.exists() {
+            jar_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.strip_prefix("jdbc-bridge-"))
+                .unwrap_or(env!("APP_VERSION"))
+                .to_string()
+        } else {
+            env!("APP_VERSION").to_string()
+        };
+        Ok(BridgeStatus {
+            installed: jar_path.exists(),
+            current_version,
+            path: Some(jar_path.to_string_lossy().to_string()),
+        })
+    }
 }
 
 #[tauri::command]
 pub async fn download_bridge_jar() -> Result<(), String> {
-    let result = download::download_bridge_plugin().await;
-    match result {
-        Ok(()) => {
-            crate::download::emit_complete("bridge", crate::download::DownloadKind::Bridge);
-            Ok(())
-        }
-        Err(e) => {
-            let err = e.to_string();
-            crate::download::emit_error("bridge", crate::download::DownloadKind::Bridge, &err);
-            Err(err)
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let result = download::download_bridge_plugin().await;
+        match result {
+            Ok(()) => {
+                crate::download::emit_complete("bridge", crate::download::DownloadKind::Bridge);
+                Ok(())
+            }
+            Err(e) => {
+                let err = e.to_string();
+                crate::download::emit_error("bridge", crate::download::DownloadKind::Bridge, &err);
+                Err(err)
+            }
         }
     }
 }
 
 #[tauri::command]
 pub async fn remove_bridge_jar() -> Result<(), String> {
-    let jar_path = download::bridge_jar_path();
-    if jar_path.exists() {
-        std::fs::remove_file(&jar_path)
-            .map_err(|e| format!("Failed to remove bridge JAR: {}", e))?;
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let jar_path = download::bridge_jar_path();
+        if jar_path.exists() {
+            std::fs::remove_file(&jar_path)
+                .map_err(|e| format!("Failed to remove bridge JAR: {}", e))?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 #[derive(Serialize)]
@@ -339,86 +429,97 @@ pub struct DriverUpdateStatus {
 
 #[tauri::command]
 pub async fn check_driver_update(db_type: String) -> Result<DriverUpdateStatus, String> {
-    let registry = DriverRegistry::load();
-    let config = registry
-        .get_config_by_name(&db_type)
-        .ok_or_else(|| format!("Unknown driver type: {}", db_type))?;
-
-    let current_version = driver_cache_info(&config.maven_artifact).and_then(|(filename, _)| {
-        parse_jar_version(
-            &config.maven_artifact,
-            config.maven_classifier.as_deref(),
-            &filename,
-        )
-    });
-
-    // Drivers served from a direct URL (not on Maven Central, e.g. GBase 8a).
-    // Check by HEAD'ing the URL and comparing the Content-Length against the
-    // locally cached JAR size — a different length signals a new release.
-    if let Some(download_url) = &config.download_url {
-        let local_size = driver_cache_info(&config.maven_artifact).map(|(_, size)| size);
-        match reqwest::Client::new().head(download_url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                let remote_size = resp
-                    .headers()
-                    .get(reqwest::header::CONTENT_LENGTH)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok());
-                let update_available = match (remote_size, local_size) {
-                    (Some(r), Some(l)) => r != l,
-                    (Some(_), None) => true,
-                    _ => false,
-                };
-                let latest_version = remote_size.map(|s| format!("{} bytes", s));
-                return Ok(DriverUpdateStatus {
-                    current_version: local_size.map(|s| format!("{} bytes", s)),
-                    latest_version,
-                    update_available,
-                });
-            }
-            _ => {
-                return Ok(DriverUpdateStatus {
-                    current_version: local_size.map(|s| format!("{} bytes", s)),
-                    latest_version: None,
-                    update_available: false,
-                });
-            }
-        }
+    #[cfg(feature = "ohos")]
+    {
+        let _ = db_type;
+        return Err(jdbc_unavailable());
     }
 
-    // If version_cap is set, treat it as the pinned latest version
-    // (avoids spurious "update available" for intentionally pinned drivers)
-    let latest_version = if let Some(cap) = &config.version_cap {
-        Some(cap.clone())
-    } else {
-        let group_path = config.maven_group.replace('.', "/");
-        let url = format!(
-            "https://repo1.maven.org/maven2/{}/{}/maven-metadata.xml",
-            group_path, config.maven_artifact
-        );
-        match reqwest::get(&url).await {
-            Ok(resp) if resp.status().is_success() => match resp.text().await {
-                Ok(xml) => parse_maven_latest_version(&xml),
-                Err(_) => None,
-            },
-            _ => None,
+    #[cfg(not(feature = "ohos"))]
+    {
+        let registry = DriverRegistry::load();
+        let config = registry
+            .get_config_by_name(&db_type)
+            .ok_or_else(|| format!("Unknown driver type: {}", db_type))?;
+
+        let current_version =
+            driver_cache_info(&config.maven_artifact).and_then(|(filename, _)| {
+                parse_jar_version(
+                    &config.maven_artifact,
+                    config.maven_classifier.as_deref(),
+                    &filename,
+                )
+            });
+
+        // Drivers served from a direct URL (not on Maven Central, e.g. GBase 8a).
+        // Check by HEAD'ing the URL and comparing the Content-Length against the
+        // locally cached JAR size — a different length signals a new release.
+        if let Some(download_url) = &config.download_url {
+            let local_size = driver_cache_info(&config.maven_artifact).map(|(_, size)| size);
+            match reqwest::Client::new().head(download_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    let remote_size = resp
+                        .headers()
+                        .get(reqwest::header::CONTENT_LENGTH)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok());
+                    let update_available = match (remote_size, local_size) {
+                        (Some(r), Some(l)) => r != l,
+                        (Some(_), None) => true,
+                        _ => false,
+                    };
+                    let latest_version = remote_size.map(|s| format!("{} bytes", s));
+                    return Ok(DriverUpdateStatus {
+                        current_version: local_size.map(|s| format!("{} bytes", s)),
+                        latest_version,
+                        update_available,
+                    });
+                }
+                _ => {
+                    return Ok(DriverUpdateStatus {
+                        current_version: local_size.map(|s| format!("{} bytes", s)),
+                        latest_version: None,
+                        update_available: false,
+                    });
+                }
+            }
         }
-    };
 
-    let update_available = match (&current_version, &latest_version) {
-        (Some(c), Some(l)) => c != l,
-        (None, Some(_)) => true,
-        _ => false,
-    };
+        // If version_cap is set, treat it as the pinned latest version
+        // (avoids spurious "update available" for intentionally pinned drivers)
+        let latest_version = if let Some(cap) = &config.version_cap {
+            Some(cap.clone())
+        } else {
+            let group_path = config.maven_group.replace('.', "/");
+            let url = format!(
+                "https://repo1.maven.org/maven2/{}/{}/maven-metadata.xml",
+                group_path, config.maven_artifact
+            );
+            match reqwest::get(&url).await {
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(xml) => parse_maven_latest_version(&xml),
+                    Err(_) => None,
+                },
+                _ => None,
+            }
+        };
 
-    Ok(DriverUpdateStatus {
-        current_version,
-        latest_version,
-        update_available,
-    })
+        let update_available = match (&current_version, &latest_version) {
+            (Some(c), Some(l)) => c != l,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+
+        Ok(DriverUpdateStatus {
+            current_version,
+            latest_version,
+            update_available,
+        })
+    }
 }
 
 /// Extract the `<latest>` version tag from a Maven metadata XML string.
+#[cfg(not(feature = "ohos"))]
 fn parse_maven_latest_version(xml: &str) -> Option<String> {
     let start = xml.find("<latest>")?;
     let value_start = start + "<latest>".len();
@@ -428,19 +529,25 @@ fn parse_maven_latest_version(xml: &str) -> Option<String> {
 
 #[tauri::command]
 pub async fn check_jre_update() -> Result<JreUpdateStatus, String> {
-    let current = jre::read_jre_version();
-    let redirect_url = jre::check_adoptium_update().await;
-    let latest = redirect_url
-        .as_ref()
-        .and_then(|url| jre::parse_adoptium_build_version(url));
-    let update_available = match (&current, &latest) {
-        (Some(c), Some(l)) => jre::compare_versions(l, c) > 0,
-        (None, Some(_)) => true,
-        _ => false,
-    };
-    Ok(JreUpdateStatus {
-        current_version: current,
-        latest_version: latest,
-        update_available,
-    })
+    #[cfg(feature = "ohos")]
+    return Err(jdbc_unavailable());
+
+    #[cfg(not(feature = "ohos"))]
+    {
+        let current = jre::read_jre_version();
+        let redirect_url = jre::check_adoptium_update().await;
+        let latest = redirect_url
+            .as_ref()
+            .and_then(|url| jre::parse_adoptium_build_version(url));
+        let update_available = match (&current, &latest) {
+            (Some(c), Some(l)) => jre::compare_versions(l, c) > 0,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+        Ok(JreUpdateStatus {
+            current_version: current,
+            latest_version: latest,
+            update_available,
+        })
+    }
 }

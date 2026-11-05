@@ -24,10 +24,18 @@ async function getPlatform(): Promise<string> {
 // Initialize platform detection on module load
 getPlatform()
 
+// plugin-os reports "linux" on HarmonyOS (linux target), so the ArkWeb
+// user agent is the reliable signal.
+export const isOhosUserAgent = (userAgent: string): boolean => /openharmony/i.test(userAgent)
+
 function usePlatform() {
   const isMac = computed(() => platformCache.value === 'macos')
   const isWindows = computed(() => platformCache.value === 'windows')
   const isLinux = computed(() => platformCache.value === 'linux')
+
+  const isOhos = computed(
+    () => typeof navigator !== 'undefined' && isOhosUserAgent(navigator.userAgent),
+  )
 
   // Aligned with dockit: ⌘ on Mac, Ctrl on other platforms (no + suffix)
   const cmdKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
@@ -42,6 +50,7 @@ function usePlatform() {
     isMac,
     isWindows,
     isLinux,
+    isOhos,
     cmdKey,
     modifierKey,
     altKey,
